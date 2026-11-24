@@ -341,6 +341,9 @@ xcl rpf D:\data\shaders.rpf --extract NAME --out folder
 
 ## Tests
 
+For startup diagnostics, `scripts/smoke.ps1 -Game <folder> -Seconds 0` asks XCL to
+finish the run immediately. The default smoke duration is 60 seconds.
+
 ```powershell
 .\scripts\test.ps1                         # cargo build --workspace + cargo test --workspace
 ```
