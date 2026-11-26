@@ -802,7 +802,7 @@ struct ShadersOptions {
     recomp: bool,
     iface: bool,
     example: Option<String>,
-    windows: u32,
+    windows: Option<u32>,
     split: Option<bool>,
     export_hlsl: Option<PathBuf>,
     min_kb: usize,
@@ -837,7 +837,7 @@ fn parse_args(args: &[String]) -> Result<ShadersOptions, String> {
         recomp: false,
         iface: false,
         example: None,
-        windows: 4,
+        windows: None,
         split: None,
         export_hlsl: None,
         min_kb: 1024,
@@ -874,7 +874,7 @@ fn parse_args(args: &[String]) -> Result<ShadersOptions, String> {
             "--example" => opts.example = Some(p.value("--example")?.to_string()),
             "--windows" => {
                 let w = p.parse_usize("--windows")?;
-                opts.windows = u32::try_from(w).map_err(|_| format!("invalid value for --windows: {w}"))?;
+                opts.windows = Some(u32::try_from(w).map_err(|_| format!("invalid value for --windows: {w}"))?);
             }
             "--split" => opts.split = Some(p.parse_bool_01("--split")?),
             "--export-hlsl" => opts.export_hlsl = Some(PathBuf::from(p.value("--export-hlsl")?)),
@@ -914,12 +914,11 @@ pub fn run(path: &Path, args: &[String]) -> i32 {
             return 2;
         }
     };
-    // the runtime's memory windows: from the descriptor heap with `XCL_HEAP_WINDOWS=1`
-    // (`pso::mem_windows`), as `--precompile`
-    let runtime_windows = || {
-        let windows = opts.windows;
+    // Encode heap-backed windows the same way as `pso::mem_windows`.
+    let runtime_windows = |windows: u32| {
         if windows > 1 && recomp::pso::heap_windows() { windows | recomp::HEAP_WINDOWS } else { windows }
     };
+    let default_windows = crate::gpu::uma::MAX_WINDOWS as u32;
     let top = opts.top;
     let json = opts.json;
     let compile = opts.compile;
@@ -962,7 +961,7 @@ pub fn run(path: &Path, args: &[String]) -> i32 {
             dir,
             opts.min_kb,
             opts.count,
-            runtime_windows(),
+            runtime_windows(opts.windows.unwrap_or(default_windows)),
             opts.split,
             opts.record_hash,
         );
@@ -972,15 +971,15 @@ pub fn run(path: &Path, args: &[String]) -> i32 {
             &input,
             hash,
             opts.repeat.max(1),
-            runtime_windows(),
+            runtime_windows(opts.windows.unwrap_or(default_windows)),
             opts.split,
         );
     }
     if opts.precompile {
         // `--used-only`: only the compute programs whose pipelines an earlier run of a title used
         let used = opts.used_only.then(crate::hle::d3d12x::pso_async::earlier_used_keys);
-        // the runtime's key: heap windows with `XCL_HEAP_WINDOWS=1` (`pso::mem_windows`)
-        let windows = runtime_windows();
+        let windows = opts.windows.unwrap_or_else(|| crate::gpu::uma::configured_runtime_windows() as u32);
+        let windows = runtime_windows(windows);
         return match precompile(&input, opts.limit, windows, opts.split, opts.only.as_deref(), opts.pipelines, used.as_ref(), t0, None) {
             Ok(()) => 0,
             Err(e) => { eprintln!("xcl shaders: {e}"); 2 }
@@ -1192,7 +1191,7 @@ fn measure_pso_result(input: &Input, hash: u64, repeat: usize, windows: u32, spl
 /// wait for DXC on first use. Resumable: cached programs are skipped. GS halves need their
 /// pipeline partner and are left to the runtime.
 /// The cache key is the HLSL, so the options are the runtime's: `windows` memory windows as a
-/// title's unified memory has (`pso::mem_windows`, 4; `--windows 1` for a title without it),
+/// title's unified memory has (`XCL_UMA_WINDOWS`, or `--windows` to override),
 /// and the split wave64 form when this machine's GPU (`XCL_ADAPTER`) runs only 32-lane waves
 /// (`pso::wave32_only_for_device`). Before, the programs were translated with one window and
 /// no split form, so a title asked for other HLSL and compiled everything again. Still
@@ -2366,7 +2365,7 @@ fn direct_sweep(input: &Input, opts: &ShadersOptions, t0: std::time::Instant) ->
     let seed = opts.seed;
     let validate = opts.validate;
     let compare = opts.compare;
-    let windows = opts.windows;
+    let windows = opts.windows.unwrap_or(crate::gpu::uma::MAX_WINDOWS as u32);
     let split = opts.split.unwrap_or(true);
     // records hold one or more programs: sample records, stop at `want` programs
     let order = coverage::sample_indices(input.len(), want, seed);

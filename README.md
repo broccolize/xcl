@@ -230,6 +230,9 @@ xcl shaders D:\data\shaders.rpf --measure-pso HEX --repeat 3         # cold driv
 xcl rpf D:\data\shaders.rpf --extract NAME --out folder
 ```
 
+With `XCL_HEAP_WINDOWS=1`, `shaders --precompile` uses the configured `XCL_UMA_WINDOWS` count.
+Use `--windows` to choose a different layout for precompilation.
+
 <details>
 <summary><b>Switches, caches, logs and the files XCL writes</b></summary>
 

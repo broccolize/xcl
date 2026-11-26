@@ -73,6 +73,33 @@ fn help_lists_shader_precompile_options() {
 }
 
 #[test]
+fn precompile_uses_the_configured_uma_window_count() {
+    let dir = TempDir::new("precompile-windows");
+    let cache = dir.path().join("cache");
+    for (uma_windows, heap_windows, override_windows, expected) in [
+        (None, "0", None, "4 memory windows"),
+        (Some("8"), "1", None, "8 memory windows from the descriptor heap"),
+        (Some("16"), "1", None, "16 memory windows from the descriptor heap"),
+        (Some("16"), "0", None, "4 memory windows"),
+        (Some("16"), "1", Some("4"), "4 memory windows from the descriptor heap"),
+    ] {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_xcl"));
+        cmd.arg("shaders").arg(dir.path()).args(["--precompile", "--split", "0"])
+            .env("XCL_HEAP_WINDOWS", heap_windows).env("XCL_DXIL_CACHE", &cache)
+            .env_remove("XCL_UMA_WINDOWS");
+        if let Some(windows) = uma_windows {
+            cmd.env("XCL_UMA_WINDOWS", windows);
+        }
+        if let Some(windows) = override_windows {
+            cmd.args(["--windows", windows]);
+        }
+        let out = cmd.output().unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success() && stdout.contains(&format!("; {expected})")), "{out:?}");
+    }
+}
+
+#[test]
 fn shaders_single_file_reports_text_top_json_recomp_and_dxc_compile() {
     let dir = TempDir::new("single");
     let file = dir.path().join("ps.bin");
